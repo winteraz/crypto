@@ -88,6 +88,8 @@ func defaultHostPolicy(context.Context, string) error {
 // Otherwise your server is very likely to exceed the certificate
 // issuer's request rate limits.
 type Manager struct {
+	// If set it allows acme to use dns-01 to perform the verification
+	UpdateTXT func(key, value string)error
 	// Prompt specifies a callback function to conditionally accept a CA's Terms of Service (TOS).
 	// The registration may require the caller to agree to the CA's TOS.
 	// If so, Manager calls Prompt with a TOS URL provided by the CA. Prompt should report
@@ -485,15 +487,22 @@ func (m *Manager) verify(ctx context.Context, domain string) error {
 		return nil
 	}
 
-	// pick a challenge: prefer tls-sni-02 over tls-sni-01
+	// pick a challenge: prefer dns-01 if UpdateTXT is not nil
+	// then tls-sni-02 over tls-sni-01
 	// TODO: consider authz.Combinations
 	var chal *acme.Challenge
 	for _, c := range authz.Challenges {
-		if c.Type == "tls-sni-02" {
+		if c.Type == "dns-01" && m.UpdateTXT != nil {
 			chal = c
 			break
 		}
-		if c.Type == "tls-sni-01" {
+		if c.Type == "tls-sni-02" {
+			chal = c
+			if m.UpdateTXT == nil{
+				break
+			}
+		}
+		if c.Type == "tls-sni-01" && chal == nil {
 			chal = c
 		}
 	}
@@ -507,6 +516,8 @@ func (m *Manager) verify(ctx context.Context, domain string) error {
 		name string
 	)
 	switch chal.Type {
+	case "dns-01":
+		name, err = client.DNS01ChallengeRecord(chal.Token)
 	case "tls-sni-01":
 		cert, name, err = client.TLSSNI01ChallengeCert(chal.Token)
 	case "tls-sni-02":
@@ -517,13 +528,18 @@ func (m *Manager) verify(ctx context.Context, domain string) error {
 	if err != nil {
 		return err
 	}
-	m.putTokenCert(ctx, name, &cert)
-	defer func() {
-		// verification has ended at this point
-		// don't need token cert anymore
-		go m.deleteTokenCert(name)
-	}()
-
+	if chal.Type == "dns-01"{
+		if err = m.UpdateTXT("_acme-challenge", name); err != nil{
+			return err
+		}
+	}else{
+		m.putTokenCert(ctx, name, &cert)
+		defer func() {
+			// verification has ended at this point
+			// don't need token cert anymore
+			go m.deleteTokenCert(name)
+		}()
+	}
 	// ready to fulfill the challenge
 	if _, err := client.Accept(ctx, chal); err != nil {
 		return err
