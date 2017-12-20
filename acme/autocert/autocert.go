@@ -16,9 +16,11 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -89,7 +91,7 @@ func defaultHostPolicy(context.Context, string) error {
 // issuer's request rate limits.
 type Manager struct {
 	// If set it allows acme to use dns-01 to perform the verification
-	UpdateTXT func(key, value string)error
+	UpdateTXT func(key, value string) error
 	// Prompt specifies a callback function to conditionally accept a CA's Terms of Service (TOS).
 	// The registration may require the caller to agree to the CA's TOS.
 	// If so, Manager calls Prompt with a TOS URL provided by the CA. Prompt should report
@@ -498,7 +500,7 @@ func (m *Manager) verify(ctx context.Context, domain string) error {
 		}
 		if c.Type == "tls-sni-02" {
 			chal = c
-			if m.UpdateTXT == nil{
+			if m.UpdateTXT == nil {
 				break
 			}
 		}
@@ -528,11 +530,14 @@ func (m *Manager) verify(ctx context.Context, domain string) error {
 	if err != nil {
 		return err
 	}
-	if chal.Type == "dns-01"{
-		if err = m.UpdateTXT("_acme-challenge", name); err != nil{
+	if chal.Type == "dns-01" {
+		// Generate a DNS record which fulfills the `dns-01` challenge
+		b := sha256.Sum256([]byte(name))
+		name = base64.RawURLEncoding.EncodeToString(b[:sha256.Size])
+		if err = m.UpdateTXT("_acme-challenge", name); err != nil {
 			return err
 		}
-	}else{
+	} else {
 		m.putTokenCert(ctx, name, &cert)
 		defer func() {
 			// verification has ended at this point
