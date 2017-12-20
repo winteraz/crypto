@@ -16,12 +16,12 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/tls"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/base64"
 	"encoding/pem"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -90,8 +90,9 @@ func defaultHostPolicy(context.Context, string) error {
 // Otherwise your server is very likely to exceed the certificate
 // issuer's request rate limits.
 type Manager struct {
-	// If set it allows acme to use dns-01 to perform the verification
-	UpdateTXT func(key, value string) error
+	// If set it allows acme to use dns-01 to perform the verification. It receives a fully qualified
+	// domain name and the text value
+	UpdateTXT func(fqdn, value string) error
 	// Prompt specifies a callback function to conditionally accept a CA's Terms of Service (TOS).
 	// The registration may require the caller to agree to the CA's TOS.
 	// If so, Manager calls Prompt with a TOS URL provided by the CA. Prompt should report
@@ -519,6 +520,7 @@ func (m *Manager) verify(ctx context.Context, domain string) error {
 	)
 	switch chal.Type {
 	case "dns-01":
+		// name is actually a txt value
 		name, err = client.DNS01ChallengeRecord(chal.Token)
 	case "tls-sni-01":
 		cert, name, err = client.TLSSNI01ChallengeCert(chal.Token)
@@ -531,10 +533,11 @@ func (m *Manager) verify(ctx context.Context, domain string) error {
 		return err
 	}
 	if chal.Type == "dns-01" {
-		// Generate a DNS record which fulfills the `dns-01` challenge
+		 // Generate a DNS record which fulfills the `dns-01` challenge
 		b := sha256.Sum256([]byte(name))
 		name = base64.RawURLEncoding.EncodeToString(b[:sha256.Size])
-		if err = m.UpdateTXT("_acme-challenge", name); err != nil {
+		fqdn := "_acme-challenge." + domain + "."
+		if err = m.UpdateTXT(fqdn, name); err != nil {
 			return err
 		}
 	} else {
