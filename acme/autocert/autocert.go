@@ -17,11 +17,9 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
-	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -533,9 +531,6 @@ func (m *Manager) verify(ctx context.Context, domain string) error {
 		return err
 	}
 	if chal.Type == "dns-01" {
-		 // Generate a DNS record which fulfills the `dns-01` challenge
-		b := sha256.Sum256([]byte(name))
-		name = base64.RawURLEncoding.EncodeToString(b[:sha256.Size])
 		fqdn := "_acme-challenge." + domain + "."
 		if err = m.UpdateTXT(fqdn, name); err != nil {
 			return err
